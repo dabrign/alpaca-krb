@@ -1,9 +1,12 @@
 # Alpaca
 
+![Alpaca Logo](assets/alpaca-small.png)
+
 ![Latest Tag][2] ![GitHub Workflow Status][3] ![GitHub Releases][4]
 
 Alpaca is a local HTTP proxy for command-line tools. It supports proxy
 auto-configuration (PAC) files and NTLM authentication.
+![alt text](assets/alpaca-banner.png)
 
 ## Install using Homebrew
 
