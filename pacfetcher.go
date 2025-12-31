@@ -16,10 +16,12 @@ package main
 
 import (
 	"bytes"
+	"encoding/base64"
 	"fmt"
 	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"runtime"
 	"strings"
 	"time"
@@ -28,15 +30,20 @@ import (
 // The maximum size (in bytes) allowed for a PAC script. At 1 MB, this matches the limit in Chrome.
 const maxResponseBytes = 1 * 1024 * 1024
 
+// The maximum size (in bytes) allowed for a data URL.
+// Chromium and Firefox limit data URLs to 512MB.
+// See https://developer.mozilla.org/en-US/docs/Web/URI/Reference/Schemes/data#length_limitations
+const maxDataURLLength = 512 * 1024 * 1024
+
 // The time to wait before retrying a failed PAC download. This is similar to Chrome's delay:
 // https://cs.chromium.org/chromium/src/net/proxy_resolution/proxy_resolution_service.cc?l=96&rcl=3db5f65968c3ecab3932c1ff7367ad28834f9502
 var delayAfterFailedDownload = 2 * time.Second
 
 type pacFetcher struct {
-	pacFinder  *pacFinder
-	monitor    netMonitor
-	client     *http.Client
-	connected  bool
+	pacFinder *pacFinder
+	monitor   netMonitor
+	client    *http.Client
+	connected bool
 	//cache  []byte
 	//modified time.Time
 	//fetched time.Time
@@ -63,9 +70,9 @@ func newPACFetcher(pacurl string) *pacFetcher {
 		client.Transport = &http.Transport{Proxy: nil}
 	}
 	return &pacFetcher{
-		pacFinder:  newPacFinder(pacurl),
-		monitor:    newNetMonitor(),
-		client:     client,
+		pacFinder: newPacFinder(pacurl),
+		monitor:   newNetMonitor(),
+		client:    client,
 	}
 }
 
@@ -78,6 +85,45 @@ func requireOK(resp *http.Response, err error) (*http.Response, error) {
 	} else {
 		return resp, nil
 	}
+}
+
+// decodeDataURL decodes a data URL (e.g., data:text/plain;base64,SGVsbG8sIFdvcmxkIQ==).
+// It supports both base64 and URL-encoded data, and enforces the maxResponseBytes size limit.
+// See https://developer.mozilla.org/en-US/docs/Web/HTTP/Basics_of_HTTP/Data_URLs for details.
+func decodeDataURL(uri string) ([]byte, error) {
+	parsedURL, err := url.Parse(uri)
+
+	if err != nil {
+		return nil, fmt.Errorf("error parsing pac url: %w", err)
+	}
+
+	if parsedURL.Scheme != "data" {
+		return nil, nil
+	}
+
+	if len(uri) > maxDataURLLength {
+		return nil, fmt.Errorf("error parsing data URL: PAC JS is too big (limit is %d bytes)",
+			maxDataURLLength)
+	}
+
+	metadata, data, ok := strings.Cut(parsedURL.Opaque, ",")
+	if !ok {
+		return nil, fmt.Errorf("error parsing data URL: invalid format")
+	}
+
+	if strings.HasSuffix(metadata, ";base64") {
+		bytes, err := base64.StdEncoding.DecodeString(data)
+		if err != nil {
+			return nil, fmt.Errorf("error decoding base64 data URL: %w", err)
+		}
+		return bytes, nil
+	}
+
+	decoded, err := url.PathUnescape(data)
+	if err != nil {
+		return nil, fmt.Errorf("error parsing data URL: %w", err)
+	}
+	return []byte(decoded), nil
 }
 
 func (pf *pacFetcher) download() []byte {
@@ -98,6 +144,18 @@ func (pf *pacFetcher) download() []byte {
 	}
 
 	log.Printf("Attempting to download PAC from %s", pacurl)
+
+	pac, err := decodeDataURL(pacurl)
+	if err != nil {
+		log.Printf("Error downloading PAC file: %v", err)
+		return nil
+	}
+
+	if pac != nil {
+		pf.connected = true
+		return pac
+	}
+
 	resp, err := requireOK(pf.client.Get(pacurl))
 	if err != nil {
 		// Sometimes, if we try to download too soon after a network change, the PAC

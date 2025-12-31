@@ -1,4 +1,4 @@
-// Copyright 2019, 2021, 2022 The Alpaca Authors
+// Copyright 2019, 2021, 2022, 2025 The Alpaca Authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -128,4 +128,44 @@ func TestPacFromFilesystem(t *testing.T) {
 	pf.monitor = newNetMonitor()
 	assert.Equal(t, content, pf.download())
 	assert.True(t, pf.isConnected())
+}
+
+func TestDecodeDataURL(t *testing.T) {
+	tests := []struct {
+		name     string
+		uri      string
+		expected string
+	}{
+		{
+			"Base64",
+			"data:application/x-ns-proxy-autoconfig;base64,ZnVuY3Rpb24gRmluZFByb3h5Rm9yVVJMKHVybCwgaG" +
+				"9zdCkgewogIHJldHVybiAiUFJPWFkgcHJveHk6ODA4MCI7Cn0K",
+			"function FindProxyForURL(url, host) {\n  return \"PROXY proxy:8080\";\n}\n",
+		},
+		{
+			"URLEncoded",
+			"data:,function%20FindProxyForURL(url%2C%20host)%20%7B%0A%20%20return%20%22PROXY%20proxy%3A" +
+				"8080%22%3B%0A%7D%0A",
+			"function FindProxyForURL(url, host) {\n  return \"PROXY proxy:8080\";\n}\n",
+		},
+		{
+			"URLEncodedWithPlus",
+			"data:,foo+bar",
+			"foo+bar",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			pf := newPACFetcher(test.uri)
+			assert.Equal(t, test.expected, string(pf.download()))
+		})
+	}
+}
+
+func TestDecodeDataURL_NonDataScheme(t *testing.T) {
+	uri := "http://example.com"
+	got, err := decodeDataURL(uri)
+	assert.Nil(t, got)
+	assert.NoError(t, err)
 }
