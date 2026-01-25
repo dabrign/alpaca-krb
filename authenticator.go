@@ -26,13 +26,26 @@ import (
 	"github.com/samuong/go-ntlmssp"
 )
 
-type authenticator struct {
+// Authenticator is the interface for proxy authentication methods.
+type Authenticator interface {
+	// Do performs authentication for the given request.
+	Do(req *http.Request, rt http.RoundTripper) (*http.Response, error)
+	// String returns a string representation (for logging/debugging).
+	String() string
+}
+
+// ntlmAuthenticator implements NTLM proxy authentication.
+type ntlmAuthenticator struct {
 	domain   string
 	username string
 	hash     []byte
 }
 
-func (a authenticator) do(req *http.Request, rt http.RoundTripper) (*http.Response, error) {
+// authenticator is an alias for backward compatibility with existing code.
+// TODO: Remove this alias after updating all references.
+type authenticator = ntlmAuthenticator
+
+func (a *ntlmAuthenticator) Do(req *http.Request, rt http.RoundTripper) (*http.Response, error) {
 	hostname, _ := os.Hostname() // in case of error, just use the zero value ("") as hostname
 	negotiate, err := ntlmssp.NewNegotiateMessage(a.domain, hostname)
 	if err != nil {
@@ -66,6 +79,11 @@ func (a authenticator) do(req *http.Request, rt http.RoundTripper) (*http.Respon
 	return rt.RoundTrip(req)
 }
 
-func (a authenticator) String() string {
+func (a *ntlmAuthenticator) String() string {
 	return fmt.Sprintf("%s@%s:%s", a.username, a.domain, hex.EncodeToString(a.hash))
+}
+
+// do is kept for backward compatibility with existing code that uses value receiver.
+func (a authenticator) do(req *http.Request, rt http.RoundTripper) (*http.Response, error) {
+	return (&a).Do(req, rt)
 }

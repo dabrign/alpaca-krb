@@ -123,6 +123,55 @@ can set this manually using the `-C` flag.
 
 ---
 
+### Kerberos/SPNEGO Authentication
+
+Alpaca also supports Kerberos (SPNEGO/Negotiate) authentication with upstream proxies.
+This is useful when your corporate proxy supports Kerberos and you have a valid ticket.
+
+#### Using Existing Kerberos Tickets
+
+If you have a valid Kerberos ticket (from `kinit`), you can use it directly:
+
+```bash
+# First, get a Kerberos ticket
+$ kinit your.username@CORP.EXAMPLE.COM
+
+# Verify ticket exists
+$ klist
+
+# Start Alpaca with Kerberos authentication
+$ alpaca --auth-type kerberos --krb-spn HTTP/proxy.corp.com
+```
+
+#### Kerberos CLI Options
+
+| Flag | Description |
+|------|-------------|
+| `--auth-type` | Authentication type: `ntlm` (default), `kerberos`, or `auto` |
+| `--krb5-conf` | Path to krb5.conf (default: `/etc/krb5.conf` or `$KRB5_CONFIG`) |
+| `--krb-realm` | Kerberos realm (optional, inferred from config) |
+| `--krb-keytab` | Path to keytab file (for service accounts) |
+| `--krb-spn` | Service Principal Name for the proxy (e.g., `HTTP/proxy.corp.com`) |
+
+#### Using a Keytab File
+
+For automated/service scenarios, you can use a keytab file:
+
+```bash
+$ alpaca --auth-type kerberos \
+         --krb-keytab /path/to/user.keytab \
+         --krb-spn HTTP/proxy.corp.com
+```
+
+#### Troubleshooting Kerberos
+
+1. **Check your ticket**: Run `klist` to verify you have a valid TGT
+2. **Enable debug logging**: Set `KRB5_TRACE=/dev/stdout` before running Alpaca
+3. **Verify SPN**: The SPN must match the proxy's service principal (usually `HTTP/hostname`)
+4. **Check krb5.conf**: Ensure your Kerberos configuration is correct
+
+---
+
 ### Proxy
 
 You also need to configure your tools to send requests via Alpaca. Usually this
