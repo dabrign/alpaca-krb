@@ -24,10 +24,12 @@ import (
 	ring "github.com/zalando/go-keyring"
 )
 
-type keyring struct{}
+type keyring struct {
+	keychainItem string // Not used on non-Darwin, but kept for interface compatibility
+}
 
-func fromKeyring() *keyring {
-	return &keyring{}
+func fromKeyring(keychainItem string) *keyring {
+	return &keyring{keychainItem: keychainItem}
 }
 
 func (k *keyring) getCredentials() (*authenticator, error) {

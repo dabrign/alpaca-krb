@@ -59,6 +59,7 @@ func main() {
 	pacurl := flag.String("C", "", "url of proxy auto-config (pac) file")
 	domain := flag.String("d", "", "domain of the proxy account (for NTLM auth)")
 	username := flag.String("u", whoAmI(), "username of the proxy account (for NTLM auth)")
+	keychainItem := flag.String("k", "", "keychain item label to use for credentials (macOS only)")
 	printHash := flag.Bool("H", false, "print hashed NTLM credentials for non-interactive use")
 	version := flag.Bool("version", false, "print version number")
 	flag.Parse()
@@ -79,7 +80,7 @@ func main() {
 	} else if value := os.Getenv("NTLM_CREDENTIALS"); value != "" {
 		src = fromEnvVar(value)
 	} else {
-		src = fromKeyring()
+		src = fromKeyring(*keychainItem)
 	}
 
 	var a *authenticator
