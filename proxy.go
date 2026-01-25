@@ -31,13 +31,13 @@ var tlsClientConfig *tls.Config
 
 type ProxyHandler struct {
 	transport *http.Transport
-	auth      *authenticator
+	auth      Authenticator
 	block     func(string)
 }
 
 type proxyFunc func(*http.Request) (*url.URL, error)
 
-func NewProxyHandler(auth *authenticator, proxy proxyFunc, block func(string)) ProxyHandler {
+func NewProxyHandler(auth Authenticator, proxy proxyFunc, block func(string)) ProxyHandler {
 	tr := &http.Transport{Proxy: proxy, TLSClientConfig: tlsClientConfig}
 	return ProxyHandler{tr, auth, block}
 }
@@ -144,7 +144,7 @@ func connectDirect(req *http.Request) (net.Conn, error) {
 	return server, err
 }
 
-func connectViaProxy(req *http.Request, proxy *url.URL, auth *authenticator) (net.Conn, error) {
+func connectViaProxy(req *http.Request, proxy *url.URL, auth Authenticator) (net.Conn, error) {
 	id := req.Context().Value(contextKeyID)
 	var tr transport
 	defer tr.Close()
@@ -163,7 +163,7 @@ func connectViaProxy(req *http.Request, proxy *url.URL, auth *authenticator) (ne
 			log.Printf("[%d] Error re-dialling %s: %v", id, proxy.Host, err)
 			return nil, err
 		}
-		resp, err = auth.do(req, &tr)
+		resp, err = auth.Do(req, &tr)
 		if err != nil {
 			return nil, err
 		}
@@ -176,7 +176,7 @@ func connectViaProxy(req *http.Request, proxy *url.URL, auth *authenticator) (ne
 	return tr.hijack(), nil
 }
 
-func (ph ProxyHandler) proxyRequest(w http.ResponseWriter, req *http.Request, auth *authenticator) {
+func (ph ProxyHandler) proxyRequest(w http.ResponseWriter, req *http.Request, auth Authenticator) {
 	// Make a copy of the request body, in case we have to replay it (for authentication)
 	var buf bytes.Buffer
 	id := req.Context().Value(contextKeyID)
@@ -212,7 +212,7 @@ func (ph ProxyHandler) proxyRequest(w http.ResponseWriter, req *http.Request, au
 			log.Printf("[%d] Error while seeking to start of request body: %v", id, err)
 		} else {
 			req.Body = io.NopCloser(rd)
-			resp, err = auth.do(req, ph.transport)
+			resp, err = auth.Do(req, ph.transport)
 			if err != nil {
 				log.Printf("[%d] Error forwarding request (with auth): %v", id, err)
 				w.WriteHeader(http.StatusBadGateway)

@@ -6,6 +6,7 @@ toolchain go1.22.4
 
 require (
 	github.com/gobwas/glob v0.2.3
+	github.com/jcmturner/gokrb5/v8 v8.4.4
 	github.com/keybase/go-keychain v0.0.0-20231219164618-57a3676c3af6
 	github.com/robertkrimen/otto v0.4.0
 	github.com/samuong/go-ntlmssp v0.0.0-20240616070040-65a20607c744
@@ -19,8 +20,15 @@ require (
 	github.com/danieljoos/wincred v1.2.0 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/godbus/dbus/v5 v5.1.0 // indirect
+	github.com/hashicorp/go-uuid v1.0.3 // indirect
+	github.com/jcmturner/aescts/v2 v2.0.0 // indirect
+	github.com/jcmturner/dnsutils/v2 v2.0.0 // indirect
+	github.com/jcmturner/gofork v1.7.6 // indirect
+	github.com/jcmturner/goidentity/v6 v6.0.1 // indirect
+	github.com/jcmturner/rpc/v2 v2.0.3 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	golang.org/x/crypto v0.24.0 // indirect
+	golang.org/x/net v0.21.0 // indirect
 	golang.org/x/sys v0.21.0 // indirect
 	golang.org/x/text v0.16.0 // indirect
 	gopkg.in/sourcemap.v1 v1.0.5 // indirect

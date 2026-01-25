@@ -62,6 +62,14 @@ func main() {
 	keychainItem := flag.String("k", "", "keychain item label to use for credentials (macOS only)")
 	printHash := flag.Bool("H", false, "print hashed NTLM credentials for non-interactive use")
 	version := flag.Bool("version", false, "print version number")
+
+	// Kerberos authentication flags
+	authType := flag.String("auth-type", "ntlm", "authentication type: ntlm, kerberos, or auto")
+	krb5Conf := flag.String("krb5-conf", "", "path to krb5.conf (default: /etc/krb5.conf)")
+	krbRealm := flag.String("krb-realm", "", "Kerberos realm")
+	krbKeytab := flag.String("krb-keytab", "", "path to Kerberos keytab file")
+	krbSPN := flag.String("krb-spn", "", "Kerberos service principal name for proxy (e.g., HTTP/proxy.corp.com)")
+
 	flag.Parse()
 
 	// default to localhost if no hosts are specified
@@ -74,37 +82,55 @@ func main() {
 		os.Exit(0)
 	}
 
-	var src credentialSource
-	if *domain != "" {
-		src = fromTerminal().forUser(*domain, *username)
-	} else if value := os.Getenv("NTLM_CREDENTIALS"); value != "" {
-		src = fromEnvVar(value)
-	} else {
-		src = fromKeyring(*keychainItem)
-	}
+	var auth Authenticator
 
-	var a *authenticator
-	if src != nil {
+	// Handle Kerberos authentication
+	if *authType == "kerberos" {
+		krbSource := fromKerberosSource(KerberosOptions{
+			Krb5Conf: *krb5Conf,
+			Realm:    *krbRealm,
+			Keytab:   *krbKeytab,
+			SPN:      *krbSPN,
+		})
 		var err error
-		a, err = src.getCredentials()
+		auth, err = krbSource.getAuthenticator()
 		if err != nil {
-			log.Printf("Credentials not found, disabling proxy auth: %v", err)
+			log.Printf("Kerberos authentication failed, disabling proxy auth: %v", err)
+		}
+	} else {
+		// NTLM authentication (default)
+		var src credentialSource
+		if *domain != "" {
+			src = fromTerminal().forUser(*domain, *username)
+		} else if value := os.Getenv("NTLM_CREDENTIALS"); value != "" {
+			src = fromEnvVar(value)
+		} else {
+			src = fromKeyring(*keychainItem)
+		}
+
+		if src != nil {
+			a, err := src.getCredentials()
+			if err != nil {
+				log.Printf("Credentials not found, disabling proxy auth: %v", err)
+			} else {
+				auth = a
+			}
 		}
 	}
 
 	if *printHash {
-		if a == nil {
+		if auth == nil {
 			fmt.Println("Please specify a domain (using -d) and username (using -u)")
 			os.Exit(1)
 		}
 		fmt.Printf("# Add this to your ~/.profile (or equivalent) and restart your shell\n")
-		fmt.Printf("NTLM_CREDENTIALS=%q; export NTLM_CREDENTIALS\n", a)
+		fmt.Printf("NTLM_CREDENTIALS=%q; export NTLM_CREDENTIALS\n", auth)
 		os.Exit(0)
 	}
 
 	errch := make(chan error)
 
-	s := createServer(*port, *pacurl, a)
+	s := createServer(*port, *pacurl, auth)
 	for _, host := range hosts {
 		address := net.JoinHostPort(host, strconv.Itoa(*port))
 		for _, network := range networks(host) {
@@ -123,10 +149,10 @@ func main() {
 	log.Fatal(<-errch)
 }
 
-func createServer(port int, pacurl string, a *authenticator) *http.Server {
+func createServer(port int, pacurl string, auth Authenticator) *http.Server {
 	pacWrapper := NewPACWrapper(PACData{Port: port})
 	proxyFinder := NewProxyFinder(pacurl, pacWrapper)
-	proxyHandler := NewProxyHandler(a, getProxyFromContext, proxyFinder.blockProxy)
+	proxyHandler := NewProxyHandler(auth, getProxyFromContext, proxyFinder.blockProxy)
 	mux := http.NewServeMux()
 	pacWrapper.SetupHandlers(mux)
 
