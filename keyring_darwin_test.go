@@ -101,3 +101,23 @@ func TestNoMADInvalidUserPrincipal(t *testing.T) {
 	_, err := k.getCredentials()
 	require.Error(t, err)
 }
+
+func TestCustomKeychainItemSkipsNoMAD(t *testing.T) {
+	// When a custom keychain item is specified, NoMAD lookup should be skipped
+	// This test verifies the flow branches correctly (actual keychain lookup will fail in test)
+	k := &keyring{execCommand: fakeExecCommand(nil), keychainItem: "MyCustomApp"}
+	_, err := k.getCredentials()
+	// Expect error because keychain query fails in test environment, but it shouldn't
+	// try NoMAD preferences (would get different error)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "keychain")
+}
+
+func TestKerberosKeychainFormat(t *testing.T) {
+	// Test that kerberos:REALM format is recognized
+	k := &keyring{execCommand: fakeExecCommand(nil), keychainItem: "kerberos:CORP.EXAMPLE.COM"}
+	_, err := k.getCredentials()
+	// Expect error because keychain query fails in test environment
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "Kerberos")
+}

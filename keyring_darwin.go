@@ -26,11 +26,12 @@ import (
 )
 
 type keyring struct {
-	execCommand func(name string, arg ...string) *exec.Cmd
+	execCommand  func(name string, arg ...string) *exec.Cmd
+	keychainItem string // Custom keychain item label (empty = use NoMAD)
 }
 
-func fromKeyring() *keyring {
-	return &keyring{execCommand: exec.Command}
+func fromKeyring(keychainItem string) *keyring {
+	return &keyring{execCommand: exec.Command, keychainItem: keychainItem}
 }
 
 func (k *keyring) readDefaultForNoMAD(key string) (string, error) {
@@ -50,20 +51,105 @@ func (k *keyring) readDefaultForNoMAD(key string) (string, error) {
 }
 
 func (k *keyring) readPasswordFromKeychain(userPrincipal string) string {
-	// https://nomad.menu/help/keychain-usage/
+	return k.readPasswordFromKeychainWithLabel(userPrincipal, "NoMAD")
+}
+
+// readPasswordFromKeychainWithLabel reads a password from the keychain for a given account and label.
+// If label is empty, it matches any label.
+func (k *keyring) readPasswordFromKeychainWithLabel(account, label string) string {
 	query := keychain.NewItem()
 	query.SetSecClass(keychain.SecClassGenericPassword)
-	query.SetAccount(userPrincipal)
+	query.SetAccount(account)
 	query.SetReturnAttributes(true)
 	query.SetReturnData(true)
 	results, err := keychain.QueryItem(query)
-	if err != nil || len(results) != 1 || results[0].Label != "NoMAD" {
+	if err != nil || len(results) != 1 {
+		return ""
+	}
+	// If a specific label is required, check it
+	if label != "" && results[0].Label != label {
 		return ""
 	}
 	return string(results[0].Data)
 }
 
+// readCredentialsFromKeychainItem reads credentials from a custom keychain item.
+// The keychainItem format can be:
+// - "label" - looks for an item with this label
+// - "kerberos:REALM" - looks for Kerberos SSO extension credentials
+func (k *keyring) readCredentialsFromKeychainItem(keychainItem string) (*authenticator, error) {
+	// Handle Kerberos SSO extension format: "kerberos:REALM"
+	if strings.HasPrefix(keychainItem, "kerberos:") {
+		realm := strings.TrimPrefix(keychainItem, "kerberos:")
+		return k.readKerberosCredentials(realm)
+	}
+
+	// Generic keychain item lookup by label
+	query := keychain.NewItem()
+	query.SetSecClass(keychain.SecClassGenericPassword)
+	query.SetLabel(keychainItem)
+	query.SetReturnAttributes(true)
+	query.SetReturnData(true)
+	results, err := keychain.QueryItem(query)
+	if err != nil {
+		return nil, fmt.Errorf("keychain query failed: %w", err)
+	}
+	if len(results) == 0 {
+		return nil, fmt.Errorf("no keychain item found with label %q", keychainItem)
+	}
+	if len(results) > 1 {
+		return nil, fmt.Errorf("multiple keychain items found with label %q", keychainItem)
+	}
+
+	// Parse account as user@domain
+	account := results[0].Account
+	substrs := strings.Split(account, "@")
+	if len(substrs) != 2 {
+		return nil, fmt.Errorf("keychain account %q is not in user@domain format", account)
+	}
+	user, domain := substrs[0], substrs[1]
+	password := string(results[0].Data)
+	hash := ntlmssp.GetNtlmHash(password)
+	log.Printf("Found credentials for %s\\%s from keychain item %q", domain, user, keychainItem)
+	return &authenticator{domain, user, hash}, nil
+}
+
+// readKerberosCredentials reads credentials from the Kerberos SSO extension keychain item.
+func (k *keyring) readKerberosCredentials(realm string) (*authenticator, error) {
+	// Kerberos SSO extension stores credentials with specific attributes
+	query := keychain.NewItem()
+	query.SetSecClass(keychain.SecClassGenericPassword)
+	query.SetService("kerberos:" + realm)
+	query.SetReturnAttributes(true)
+	query.SetReturnData(true)
+	results, err := keychain.QueryItem(query)
+	if err != nil {
+		return nil, fmt.Errorf("Kerberos keychain query failed: %w", err)
+	}
+	if len(results) == 0 {
+		return nil, fmt.Errorf("no Kerberos credentials found for realm %q", realm)
+	}
+
+	// Use the first matching result
+	account := results[0].Account
+	substrs := strings.Split(account, "@")
+	if len(substrs) != 2 {
+		return nil, fmt.Errorf("Kerberos account %q is not in user@realm format", account)
+	}
+	user, domain := substrs[0], substrs[1]
+	password := string(results[0].Data)
+	hash := ntlmssp.GetNtlmHash(password)
+	log.Printf("Found Kerberos SSO credentials for %s\\%s", domain, user)
+	return &authenticator{domain, user, hash}, nil
+}
+
 func (k *keyring) getCredentials() (*authenticator, error) {
+	// If a custom keychain item is specified, use it
+	if k.keychainItem != "" {
+		return k.readCredentialsFromKeychainItem(k.keychainItem)
+	}
+
+	// Default: try NoMAD
 	useKeychain, err := k.readDefaultForNoMAD("UseKeychain")
 	if err != nil {
 		return nil, err

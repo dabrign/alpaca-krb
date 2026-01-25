@@ -84,6 +84,24 @@ On macOS, if you use [NoMAD](https://nomad.menu/products/#nomad) and have config
 to [use the keychain](https://nomad.menu/help/keychain-usage/), Alpaca will use
 these credentials to authenticate to any NTLM challenge from your proxies.
 
+#### Custom Keychain Items (macOS)
+
+You can also use credentials from other keychain items using the `-k` flag:
+
+```bash
+# Use a custom keychain item by label
+$ alpaca -k "MyProxyApp"
+
+# Use Kerberos SSO extension credentials
+$ alpaca -k "kerberos:CORP.EXAMPLE.COM"
+```
+
+The `-k` flag supports:
+- **Label lookup**: Specify the keychain item label (e.g., `-k "MyApp"`)
+- **Kerberos SSO extension**: Use format `kerberos:REALM` to read credentials from the [Kerberos Single Sign-on extension](https://support.apple.com/en-gb/guide/deployment/depe6a1cda64/web)
+
+The keychain account must be in `user@domain` format for Alpaca to extract the username and domain.
+
 On Windows and Linux/GNOME you will need some extra work to persist the username (`NTLM_USERNAME`) and the domain (`NTLM_DOMAIN`) 
 in the shell environoment, while the password in the system keyring. Alpaca will read the password from the system keyring 
 (in the `login` collection) using the attributes `service=alpaca` and `username=$NTLM_USERNAME`.
