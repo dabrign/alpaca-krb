@@ -125,50 +125,120 @@ can set this manually using the `-C` flag.
 
 ### Kerberos/SPNEGO Authentication
 
-Alpaca also supports Kerberos (SPNEGO/Negotiate) authentication with upstream proxies.
-This is useful when your corporate proxy supports Kerberos and you have a valid ticket.
+Alpaca supports Kerberos (SPNEGO/Negotiate) authentication with upstream proxies.
+This is commonly used in corporate environments where the proxy requires Kerberos authentication.
 
-#### Using Existing Kerberos Tickets
+#### Quick Start: Password Authentication (Recommended)
 
-If you have a valid Kerberos ticket (from `kinit`), you can use it directly:
+The simplest way to use Kerberos is with password authentication - no `kinit` required:
 
 ```bash
-# First, get a Kerberos ticket
-$ kinit your.username@CORP.EXAMPLE.COM
+# Using password directly (will be visible in process list)
+$ alpaca --auth-type=kerberos \
+         --krb-user=username@CORP.EXAMPLE.COM \
+         --krb-password=yourpassword \
+         --krb-spn=HTTP/proxy.corp.com
 
-# Verify ticket exists
-$ klist
-
-# Start Alpaca with Kerberos authentication
-$ alpaca --auth-type kerberos --krb-spn HTTP/proxy.corp.com
+# Using environment variable (more secure)
+$ export KRB_PASSWORD=yourpassword
+$ alpaca --auth-type=kerberos \
+         --krb-user=username@CORP.EXAMPLE.COM \
+         --krb-spn=HTTP/proxy.corp.com
 ```
 
 #### Kerberos CLI Options
 
 | Flag | Description |
 |------|-------------|
-| `--auth-type` | Authentication type: `ntlm` (default), `kerberos`, or `auto` |
-| `--krb5-conf` | Path to krb5.conf (default: `/etc/krb5.conf` or `$KRB5_CONFIG`) |
-| `--krb-realm` | Kerberos realm (optional, inferred from config) |
-| `--krb-keytab` | Path to keytab file (for service accounts) |
+| `--auth-type` | Authentication type: `ntlm` (default) or `kerberos` |
+| `--krb-user` | Kerberos username (e.g., `user@REALM` or `DOMAIN\user`) |
+| `--krb-password` | Kerberos password (or use `KRB_PASSWORD` env var) |
 | `--krb-spn` | Service Principal Name for the proxy (e.g., `HTTP/proxy.corp.com`) |
+| `--krb-realm` | Kerberos realm (optional if included in `--krb-user`) |
+| `--krb5-conf` | Path to krb5.conf (default: `/etc/krb5.conf` or `$KRB5_CONFIG`) |
+| `--krb-keytab` | Path to keytab file (for service accounts) |
+| `--krb-ccache` | Path to credential cache file (for `kinit` workflow) |
+| `--krb-debug` | Enable verbose Kerberos debug logging |
+
+#### Credential Priority
+
+Alpaca checks for Kerberos credentials in this order:
+1. **Password** (`--krb-user` + `--krb-password` or `KRB_PASSWORD` env var)
+2. **Keytab** (`--krb-keytab`)
+3. **Credential Cache** (`--krb-ccache` or `KRB5CCNAME` env var or default location)
+
+#### Alternative: Using Existing Kerberos Tickets (kinit)
+
+If you prefer to use existing Kerberos tickets from `kinit`:
+
+**On Linux:**
+```bash
+# Get a Kerberos ticket
+$ kinit your.username@CORP.EXAMPLE.COM
+
+# Verify ticket exists
+$ klist
+
+# Start Alpaca
+$ alpaca --auth-type=kerberos --krb-spn=HTTP/proxy.corp.com
+```
+
+**On macOS:**
+
+macOS stores Kerberos tickets in the Keychain by default, which is not supported
+by the pure Go Kerberos library. You must use a file-based credential cache:
+
+```bash
+# Step 1: Set up file-based credential cache
+$ export KRB5CCNAME=FILE:/tmp/krb5cc_$(id -u)
+
+# Step 2: Get tickets (they'll be stored in the file)
+$ kinit your.username@CORP.EXAMPLE.COM
+
+# Step 3: Verify tickets are in the file
+$ klist
+$ ls -la /tmp/krb5cc_*
+
+# Step 4: Start Alpaca
+$ alpaca --auth-type=kerberos --krb-spn=HTTP/proxy.corp.com
+```
+
+**Note:** On macOS, the `export KRB5CCNAME` and `kinit` commands must be run in
+the **same terminal session**. Add the export to your `~/.zshrc` or `~/.bashrc`
+to make it permanent.
 
 #### Using a Keytab File
 
 For automated/service scenarios, you can use a keytab file:
 
 ```bash
-$ alpaca --auth-type kerberos \
-         --krb-keytab /path/to/user.keytab \
-         --krb-spn HTTP/proxy.corp.com
+$ alpaca --auth-type=kerberos \
+         --krb-keytab=/path/to/user.keytab \
+         --krb-spn=HTTP/proxy.corp.com
 ```
+
+#### Finding the Correct SPN
+
+The Service Principal Name (SPN) is typically `HTTP/<proxy-hostname>`. To find it:
+
+1. **Ask your IT department** - they should know the proxy's SPN
+2. **Use the proxy hostname** - e.g., if proxy is `proxy.corp.com:8080`, try `HTTP/proxy.corp.com`
+3. **Check with kvno** (if available): `kvno HTTP/proxy.corp.com`
 
 #### Troubleshooting Kerberos
 
-1. **Check your ticket**: Run `klist` to verify you have a valid TGT
-2. **Enable debug logging**: Set `KRB5_TRACE=/dev/stdout` before running Alpaca
-3. **Verify SPN**: The SPN must match the proxy's service principal (usually `HTTP/hostname`)
-4. **Check krb5.conf**: Ensure your Kerberos configuration is correct
+| Issue | Solution |
+|-------|----------|
+| `credential cache file not found` | On macOS, use `export KRB5CCNAME=FILE:/tmp/krb5cc_$(id -u)` before `kinit` |
+| `credential cache type "KCM" is not supported` | macOS uses Keychain by default; use password auth or file-based cache |
+| `Kerberos login failed` | Check username/password, verify realm is correct |
+| `407 Proxy Authentication Required` | Verify SPN is correct, check if tickets are valid with `klist` |
+| `failed to load krb5.conf` | Ensure `/etc/krb5.conf` exists or specify with `--krb5-conf` |
+
+**Enable debug logging** to see detailed Kerberos operations:
+```bash
+$ alpaca --auth-type=kerberos --krb-debug --krb-user=user@REALM --krb-spn=HTTP/proxy
+```
 
 ---
 
