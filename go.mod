@@ -1,8 +1,6 @@
 module github.com/samuong/alpaca/v2
 
-go 1.22.3
-
-toolchain go1.22.4
+go 1.24
 
 require (
 	github.com/gobwas/glob v0.2.3
@@ -20,6 +18,8 @@ require (
 	github.com/danieljoos/wincred v1.2.0 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/godbus/dbus/v5 v5.1.0 // indirect
+	github.com/golang-auth/go-gssapi-c v0.1.1 // indirect
+	github.com/golang-auth/go-gssapi/v3 v3.0.1-beta6 // indirect
 	github.com/hashicorp/go-uuid v1.0.3 // indirect
 	github.com/jcmturner/aescts/v2 v2.0.0 // indirect
 	github.com/jcmturner/dnsutils/v2 v2.0.0 // indirect

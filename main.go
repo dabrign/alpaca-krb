@@ -21,6 +21,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/user"
 	"strconv"
@@ -72,6 +73,7 @@ func main() {
 	krbCCache := flag.String("krb-ccache", "", "path to Kerberos credential cache file")
 	krbUser := flag.String("krb-user", "", "Kerberos username (e.g., user@REALM or DOMAIN\\user)")
 	krbPassword := flag.String("krb-password", "", "Kerberos password (or use KRB_PASSWORD env var)")
+	krbNative := flag.Bool("krb-native", false, "use native GSS-API for Kerberos (macOS Keychain, requires CGO)")
 	krbDebug := flag.Bool("krb-debug", false, "enable verbose Kerberos debug logging")
 
 	flag.Parse()
@@ -90,21 +92,47 @@ func main() {
 
 	// Handle Kerberos authentication
 	if *authType == "kerberos" {
-		krbSource := fromKerberosSource(KerberosOptions{
-			Krb5Conf: *krb5Conf,
-			Realm:    *krbRealm,
-			Keytab:   *krbKeytab,
-			SPN:      *krbSPN,
-			Username: *krbUser,
-			Password: *krbPassword,
-			CCache:   *krbCCache,
-			ProxyURL: *pacurl, // Use PAC URL for SPN auto-discovery if available
-			Debug:    *krbDebug,
-		})
-		var err error
-		auth, err = krbSource.getAuthenticator()
-		if err != nil {
-			log.Fatalf("Kerberos authentication setup failed: %v", err)
+		// Use native GSS-API if requested
+		if *krbNative {
+			if !IsGSSAPIAvailable() {
+				log.Fatalf("GSS-API not available. Build with CGO enabled or use password/keytab/ccache authentication.")
+			}
+			// For native GSS-API, we need the SPN
+			spn := *krbSPN
+			if spn == "" && *pacurl != "" {
+				// Try to auto-discover SPN from PAC URL
+				if u, err := url.Parse(*pacurl); err == nil && u.Hostname() != "" {
+					spn = "HTTP/" + u.Hostname()
+					log.Printf("Auto-discovered SPN from PAC URL: %s", spn)
+				}
+			}
+			if spn == "" {
+				log.Fatalf("SPN required for native GSS-API authentication. Use --krb-spn=HTTP/proxy.hostname")
+			}
+			var err error
+			auth, err = NewGSSAPIAuthenticator(spn, *krbDebug)
+			if err != nil {
+				log.Fatalf("GSS-API authentication setup failed: %v", err)
+			}
+			log.Printf("Using native GSS-API authentication (SPN: %s)", spn)
+		} else {
+			// Use pure Go gokrb5 implementation
+			krbSource := fromKerberosSource(KerberosOptions{
+				Krb5Conf: *krb5Conf,
+				Realm:    *krbRealm,
+				Keytab:   *krbKeytab,
+				SPN:      *krbSPN,
+				Username: *krbUser,
+				Password: *krbPassword,
+				CCache:   *krbCCache,
+				ProxyURL: *pacurl, // Use PAC URL for SPN auto-discovery if available
+				Debug:    *krbDebug,
+			})
+			var err error
+			auth, err = krbSource.getAuthenticator()
+			if err != nil {
+				log.Fatalf("Kerberos authentication setup failed: %v", err)
+			}
 		}
 	} else {
 		// NTLM authentication (default)

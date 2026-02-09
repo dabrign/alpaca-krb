@@ -128,9 +128,23 @@ can set this manually using the `-C` flag.
 Alpaca supports Kerberos (SPNEGO/Negotiate) authentication with upstream proxies.
 This is commonly used in corporate environments where the proxy requires Kerberos authentication.
 
-#### Quick Start: Password Authentication (Recommended)
+#### Quick Start: Native GSS-API (macOS - Recommended)
 
-The simplest way to use Kerberos is with password authentication - no `kinit` required:
+On macOS, use the native GSS-API to access Kerberos tickets directly from the Keychain:
+
+```bash
+# Get a Kerberos ticket (stored in Keychain automatically)
+$ kinit your.username@CORP.EXAMPLE.COM
+
+# Start Alpaca with native GSS-API
+$ alpaca --auth-type=kerberos --krb-native --krb-spn=HTTP/proxy.corp.com
+```
+
+This is the simplest approach on macOS - no password storage or file-based cache setup required.
+
+#### Alternative: Password Authentication
+
+For cross-platform use or when native GSS-API isn't available:
 
 ```bash
 # Using password directly (will be visible in process list)
@@ -151,6 +165,7 @@ $ alpaca --auth-type=kerberos \
 | Flag | Description |
 |------|-------------|
 | `--auth-type` | Authentication type: `ntlm` (default) or `kerberos` |
+| `--krb-native` | Use native GSS-API (macOS Keychain support, requires CGO) |
 | `--krb-user` | Kerberos username (e.g., `user@REALM` or `DOMAIN\user`) |
 | `--krb-password` | Kerberos password (or use `KRB_PASSWORD` env var) |
 | `--krb-spn` | Service Principal Name for the proxy (e.g., `HTTP/proxy.corp.com`) |
@@ -163,9 +178,10 @@ $ alpaca --auth-type=kerberos \
 #### Credential Priority
 
 Alpaca checks for Kerberos credentials in this order:
-1. **Password** (`--krb-user` + `--krb-password` or `KRB_PASSWORD` env var)
-2. **Keytab** (`--krb-keytab`)
-3. **Credential Cache** (`--krb-ccache` or `KRB5CCNAME` env var or default location)
+1. **Native GSS-API** (`--krb-native`) - uses OS credential store (macOS Keychain)
+2. **Password** (`--krb-user` + `--krb-password` or `KRB_PASSWORD` env var)
+3. **Keytab** (`--krb-keytab`)
+4. **Credential Cache** (`--krb-ccache` or `KRB5CCNAME` env var or default location)
 
 #### Alternative: Using Existing Kerberos Tickets (kinit)
 
