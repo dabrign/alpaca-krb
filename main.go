@@ -64,11 +64,15 @@ func main() {
 	version := flag.Bool("version", false, "print version number")
 
 	// Kerberos authentication flags
-	authType := flag.String("auth-type", "ntlm", "authentication type: ntlm, kerberos, or auto")
+	authType := flag.String("auth-type", "ntlm", "authentication type: ntlm or kerberos")
 	krb5Conf := flag.String("krb5-conf", "", "path to krb5.conf (default: /etc/krb5.conf)")
-	krbRealm := flag.String("krb-realm", "", "Kerberos realm")
+	krbRealm := flag.String("krb-realm", "", "Kerberos realm (can also be specified in --krb-user as user@REALM)")
 	krbKeytab := flag.String("krb-keytab", "", "path to Kerberos keytab file")
 	krbSPN := flag.String("krb-spn", "", "Kerberos service principal name for proxy (e.g., HTTP/proxy.corp.com)")
+	krbCCache := flag.String("krb-ccache", "", "path to Kerberos credential cache file")
+	krbUser := flag.String("krb-user", "", "Kerberos username (e.g., user@REALM or DOMAIN\\user)")
+	krbPassword := flag.String("krb-password", "", "Kerberos password (or use KRB_PASSWORD env var)")
+	krbDebug := flag.Bool("krb-debug", false, "enable verbose Kerberos debug logging")
 
 	flag.Parse()
 
@@ -91,11 +95,16 @@ func main() {
 			Realm:    *krbRealm,
 			Keytab:   *krbKeytab,
 			SPN:      *krbSPN,
+			Username: *krbUser,
+			Password: *krbPassword,
+			CCache:   *krbCCache,
+			ProxyURL: *pacurl, // Use PAC URL for SPN auto-discovery if available
+			Debug:    *krbDebug,
 		})
 		var err error
 		auth, err = krbSource.getAuthenticator()
 		if err != nil {
-			log.Printf("Kerberos authentication failed, disabling proxy auth: %v", err)
+			log.Fatalf("Kerberos authentication setup failed: %v", err)
 		}
 	} else {
 		// NTLM authentication (default)

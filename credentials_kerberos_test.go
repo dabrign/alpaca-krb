@@ -42,25 +42,60 @@ func TestGetDefaultKrb5ConfPath(t *testing.T) {
 	}
 }
 
-func TestGetDefaultCCachePath(t *testing.T) {
+func TestGetCCachePath(t *testing.T) {
 	// Save and restore environment
 	original := os.Getenv("KRB5CCNAME")
 	defer os.Setenv("KRB5CCNAME", original)
 
-	// Test with environment variable set (FILE: prefix)
-	os.Setenv("KRB5CCNAME", "FILE:/tmp/custom_ccache")
-	path := getDefaultCCachePath()
-	assert.Equal(t, "/tmp/custom_ccache", path)
+	src := fromKerberosSource(KerberosOptions{})
 
-	// Test with environment variable set (no prefix)
-	os.Setenv("KRB5CCNAME", "/tmp/another_ccache")
-	path = getDefaultCCachePath()
-	assert.Equal(t, "/tmp/another_ccache", path)
+	// Test with explicit ccache path that exists
+	tmpFile, err := os.CreateTemp("", "krb5cc_test")
+	assert.NoError(t, err)
+	defer os.Remove(tmpFile.Name())
+	tmpFile.Close()
 
-	// Test without environment variable
-	os.Unsetenv("KRB5CCNAME")
-	path = getDefaultCCachePath()
-	assert.Contains(t, path, "krb5cc_")
+	src.ccache = tmpFile.Name()
+	path, err := src.getCCachePath()
+	assert.NoError(t, err)
+	assert.Equal(t, tmpFile.Name(), path)
+
+	// Test with explicit ccache path that doesn't exist
+	src.ccache = "/nonexistent/path"
+	_, err = src.getCCachePath()
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "not found")
+
+	// Reset explicit path for env var tests
+	src.ccache = ""
+
+	// Test with KCM: cache type (unsupported)
+	os.Setenv("KRB5CCNAME", "KCM:1000")
+	_, err = src.getCCachePath()
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "not supported")
+
+	// Test with API: cache type (unsupported)
+	os.Setenv("KRB5CCNAME", "API:principal")
+	_, err = src.getCCachePath()
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "not supported")
+
+	// Test with FILE: prefix and existing file
+	os.Setenv("KRB5CCNAME", "FILE:"+tmpFile.Name())
+	// Recreate the file since we deleted it
+	tmpFile2, err := os.Create(tmpFile.Name())
+	assert.NoError(t, err)
+	tmpFile2.Close()
+	path, err = src.getCCachePath()
+	assert.NoError(t, err)
+	assert.Equal(t, tmpFile.Name(), path)
+
+	// Test with FILE: prefix but missing file
+	os.Setenv("KRB5CCNAME", "FILE:/nonexistent/ccache")
+	_, err = src.getCCachePath()
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "not found")
 }
 
 func TestKerberosCredentialSourceRequiresSPN(t *testing.T) {
@@ -74,6 +109,30 @@ func TestKerberosCredentialSourceRequiresSPN(t *testing.T) {
 	assert.Error(t, err)
 }
 
+func TestSPNAutoDiscovery(t *testing.T) {
+	// Test with explicit SPN
+	src := fromKerberosSource(KerberosOptions{
+		SPN: "HTTP/proxy.corp.com",
+	})
+	spn, err := src.resolveSPN()
+	assert.NoError(t, err)
+	assert.Equal(t, "HTTP/proxy.corp.com", spn)
+
+	// Test with proxy URL for auto-discovery
+	src = fromKerberosSource(KerberosOptions{
+		ProxyURL: "http://proxy.example.com:8080",
+	})
+	spn, err = src.resolveSPN()
+	assert.NoError(t, err)
+	assert.Equal(t, "HTTP/proxy.example.com", spn)
+
+	// Test with no SPN and no proxy URL
+	src = fromKerberosSource(KerberosOptions{})
+	_, err = src.resolveSPN()
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "SPN")
+}
+
 func TestKerberosOptionsConstruction(t *testing.T) {
 	opts := KerberosOptions{
 		Krb5Conf: "/custom/krb5.conf",
@@ -81,6 +140,9 @@ func TestKerberosOptionsConstruction(t *testing.T) {
 		Keytab:   "/path/to/user.keytab",
 		SPN:      "HTTP/proxy.corp.com",
 		Username: "testuser",
+		CCache:   "/tmp/custom_ccache",
+		ProxyURL: "http://proxy:8080",
+		Debug:    true,
 	}
 
 	src := fromKerberosSource(opts)
@@ -90,4 +152,7 @@ func TestKerberosOptionsConstruction(t *testing.T) {
 	assert.Equal(t, "/path/to/user.keytab", src.keytab)
 	assert.Equal(t, "HTTP/proxy.corp.com", src.spn)
 	assert.Equal(t, "testuser", src.username)
+	assert.Equal(t, "/tmp/custom_ccache", src.ccache)
+	assert.Equal(t, "http://proxy:8080", src.proxyURL)
+	assert.True(t, src.debug)
 }
