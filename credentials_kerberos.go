@@ -88,25 +88,31 @@ func (k *kerberosCredentialSource) debugLog(format string, args ...interface{}) 
 func (k *kerberosCredentialSource) getAuthenticator() (Authenticator, error) {
 	k.debugLog("Starting Kerberos authentication setup")
 
-	// Load krb5.conf
-	cfg, err := k.loadConfig()
-	if err != nil {
-		return nil, fmt.Errorf("failed to load Kerberos config: %w", err)
-	}
-
 	// Create Kerberos client based on available credentials
 	// Priority: password > keytab > ccache (password is simplest, no external setup needed)
 	var cl *client.Client
+	var err error
 
 	if k.password != "" && k.username != "" {
+		// Password auth requires krb5.conf for realm info
+		cfg, cfgErr := k.loadConfig()
+		if cfgErr != nil {
+			return nil, fmt.Errorf("failed to load Kerberos config: %w", cfgErr)
+		}
 		k.debugLog("Using password authentication (user: %s)", k.username)
 		cl, err = k.clientFromPassword(cfg)
 	} else if k.keytab != "" {
+		// Keytab auth requires krb5.conf for realm info
+		cfg, cfgErr := k.loadConfig()
+		if cfgErr != nil {
+			return nil, fmt.Errorf("failed to load Kerberos config: %w", cfgErr)
+		}
 		k.debugLog("Using keytab file: %s", k.keytab)
 		cl, err = k.clientFromKeytab(cfg)
 	} else {
+		// CCache mode: try to load config, but fall back to minimal config if not found
 		k.debugLog("Using credential cache")
-		cl, err = k.clientFromCCache(cfg)
+		cl, err = k.clientFromCCache(nil) // Will load config internally or use minimal
 	}
 
 	if err != nil {
@@ -145,6 +151,41 @@ func (k *kerberosCredentialSource) loadConfig() (*config.Config, error) {
 	}
 	k.debugLog("Default realm: %s", cfg.LibDefaults.DefaultRealm)
 	return cfg, nil
+}
+
+// createMinimalConfig creates a minimal Kerberos config from ccache info.
+// This is used when no krb5.conf is available but we have a valid ccache.
+func (k *kerberosCredentialSource) createMinimalConfig(cc *credentials.CCache) *config.Config {
+	// Extract realm from the ccache principal
+	realm := ""
+	if cc.DefaultPrincipal.Realm != "" {
+		realm = cc.DefaultPrincipal.Realm
+	}
+	if k.realm != "" {
+		realm = k.realm // Override with explicit realm if provided
+	}
+
+	k.debugLog("Creating minimal config with realm: %s", realm)
+
+	// Create a minimal configuration
+	cfgStr := fmt.Sprintf(`[libdefaults]
+	default_realm = %s
+	dns_lookup_realm = false
+	dns_lookup_kdc = true
+	forwardable = true
+	proxiable = true
+`, realm)
+
+	cfg, err := config.NewFromString(cfgStr)
+	if err != nil {
+		// Fallback to empty config if parsing fails
+		k.debugLog("Failed to create minimal config: %v", err)
+		cfg = config.New()
+		cfg.LibDefaults.DefaultRealm = realm
+		cfg.LibDefaults.DNSLookupKDC = true
+	}
+
+	return cfg
 }
 
 // resolveSPN determines the Service Principal Name to use.
@@ -248,6 +289,7 @@ func (k *kerberosCredentialSource) getCCachePath() (string, error) {
 }
 
 // clientFromCCache creates a client from the credential cache.
+// If cfg is nil, it will try to load krb5.conf or create a minimal config.
 func (k *kerberosCredentialSource) clientFromCCache(cfg *config.Config) (*client.Client, error) {
 	ccachePath, err := k.getCCachePath()
 	if err != nil {
@@ -260,6 +302,16 @@ func (k *kerberosCredentialSource) clientFromCCache(cfg *config.Config) (*client
 		return nil, fmt.Errorf("failed to load credential cache from %s: %w\n"+
 			"  The cache file may be corrupted or in an unsupported format.\n"+
 			"  Try running 'kinit' again to refresh your tickets.", ccachePath, err)
+	}
+
+	// If no config provided, try to load or create minimal config
+	if cfg == nil {
+		cfg, err = k.loadConfig()
+		if err != nil {
+			// Create minimal config - ccache already has the ticket, we just need basic settings
+			k.debugLog("No krb5.conf found, creating minimal config from ccache")
+			cfg = k.createMinimalConfig(ccache)
+		}
 	}
 
 	cl, err := client.NewFromCCache(ccache, cfg, client.DisablePAFXFAST(true))
