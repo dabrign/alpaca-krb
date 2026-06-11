@@ -86,18 +86,6 @@ REPO_ROOT="$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel 2>/dev/null)" \
 [ -f "$REPO_ROOT/go.mod" ] || die "Repo inattesa in $REPO_ROOT: manca go.mod."
 ok "Repo: $REPO_ROOT"
 
-# --- 2. Branch -------------------------------------------------------------------
-step "Checkout branch $BRANCH"
-CURRENT_BRANCH="$(git -C "$REPO_ROOT" rev-parse --abbrev-ref HEAD)"
-if [ "$CURRENT_BRANCH" = "$BRANCH" ]; then
-    ok "Già sul branch $BRANCH"
-elif [ -n "$(git -C "$REPO_ROOT" status --porcelain)" ]; then
-    warn "Working tree con modifiche locali: salto il checkout, resto su '$CURRENT_BRANCH'."
-else
-    git -C "$REPO_ROOT" checkout "$BRANCH"
-    ok "Checkout di $BRANCH completato"
-fi
-
 # --- 3. Build ---------------------------------------------------------------------
 step "Build di alpaca (CGO + GSS-API nativo)"
 SDKROOT="$(xcrun --sdk macosx --show-sdk-path)" \
