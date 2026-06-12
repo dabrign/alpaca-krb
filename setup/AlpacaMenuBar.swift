@@ -110,12 +110,12 @@ struct Status {
         return .running
     }
 
-    var stateLine: String {
-        switch state {
-        case .running, .degraded: return "Proxy: attivo (porta \(Config.proxyPort))"
-        case .bypass: return "Proxy: attivo, fuori rete aziendale (bypass)"
-        case .stopped: return "Proxy: fermo"
-        }
+    var alpacaLine: String {
+        proxyAlive ? "Alpaca: attivo (porta \(Config.proxyPort))" : "Alpaca: non attivo"
+    }
+
+    var networkLine: String {
+        pacReachable ? "Rete rilevata: aziendale" : "Rete rilevata: esterna"
     }
 
     var ticketLine: String {
@@ -245,7 +245,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let image = NSImage(systemSymbolName: symbol, accessibilityDescription: "Alpaca")
         image?.isTemplate = true
         button.image = image
-        button.toolTip = "Alpaca — \(status.stateLine)\n\(status.ticketLine)"
+        button.toolTip = "\(status.alpacaLine)\n\(status.networkLine)\n\(status.ticketLine)"
     }
 
     private func notifyOnTransition(to state: ProxyState) {
@@ -288,7 +288,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func rebuildMenu(_ menu: NSMenu) {
         menu.removeAllItems()
 
-        menu.addItem(disabledItem(status.stateLine))
+        menu.addItem(disabledItem(status.alpacaLine))
+        menu.addItem(disabledItem(status.networkLine))
         menu.addItem(disabledItem(status.ticketLine))
         menu.addItem(.separator())
 

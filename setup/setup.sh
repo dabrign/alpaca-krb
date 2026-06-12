@@ -250,6 +250,13 @@ cat > "$APP_DIR/Contents/Info.plist" <<EOF
         <true/>
         <key>NSHighResolutionCapable</key>
         <true/>
+        <!-- Il PAC aziendale è http://: senza questa eccezione ATS blocca il
+             probe di raggiungibilità e la rete risulta sempre "esterna" -->
+        <key>NSAppTransportSecurity</key>
+        <dict>
+            <key>NSAllowsArbitraryLoads</key>
+            <true/>
+        </dict>
 
         <key>AlpacaProxyPort</key>
         <integer>$PROXY_PORT</integer>
