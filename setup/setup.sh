@@ -107,13 +107,13 @@ REPO_ROOT="$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel 2>/dev/null)" \
 [ -f "$REPO_ROOT/go.mod" ] || die "Repo inattesa in $REPO_ROOT: manca go.mod."
 ok "Repo: $REPO_ROOT"
 
-# --- 3. Build ---------------------------------------------------------------------
+# --- 2. Build ---------------------------------------------------------------------
 step "Build di alpaca (CGO + GSS-API nativo)"
 SDKROOT="$(xcrun --sdk macosx --show-sdk-path)" \
     go build -C "$REPO_ROOT" -o "$REPO_ROOT/alpaca" .
 ok "Build completata: $REPO_ROOT/alpaca"
 
-# --- 4. Installazione binario ------------------------------------------------------
+# --- 3. Installazione binario ------------------------------------------------------
 step "Installazione binario in $INSTALL_DIR"
 # Ferma gli agent prima di sostituire binario e app (idempotenza).
 launchctl bootout "$GUI_DOMAIN/$PROXY_LABEL"   2>/dev/null || true
@@ -122,7 +122,7 @@ mkdir -p "$INSTALL_DIR"
 cp "$REPO_ROOT/alpaca" "$ALPACA_BIN"
 ok "Binario installato"
 
-# --- 5. ~/.zshrc --------------------------------------------------------------------
+# --- 4. ~/.zshrc --------------------------------------------------------------------
 step "Configurazione proxy in $ZSHRC"
 touch "$ZSHRC"
 if grep -qF "$MARKER_BEGIN" "$ZSHRC"; then
@@ -146,7 +146,7 @@ $MARKER_END
 EOF
 ok "Blocco proxy scritto (vale per le nuove shell; per quella corrente: source ~/.zshrc)"
 
-# --- 6. Proxy automatico di sistema (PAC) -------------------------------------------
+# --- 5. Proxy automatico di sistema (PAC) -------------------------------------------
 step "Configurazione proxy automatico di sistema (PAC)"
 
 # Mappa l'interfaccia di default (es. en0) sul network service (es. "Wi-Fi").
@@ -179,7 +179,7 @@ for service in "${SERVICES_TO_CONFIGURE[@]}"; do
     fi
 done
 
-# --- 7. LaunchAgent del proxy --------------------------------------------------------
+# --- 6. LaunchAgent del proxy --------------------------------------------------------
 step "LaunchAgent $PROXY_LABEL (avvio al login, KeepAlive)"
 mkdir -p "$LAUNCH_AGENTS_DIR" "$LOG_DIR"
 cat > "$PROXY_PLIST" <<EOF
@@ -221,7 +221,7 @@ EOF
 launchctl bootstrap "$GUI_DOMAIN" "$PROXY_PLIST"
 ok "Proxy avviato (porta $PROXY_PORT) e registrato per l'avvio al login"
 
-# --- 8. Menu bar app -------------------------------------------------------------------
+# --- 7. Menu bar app -------------------------------------------------------------------
 step "Build e installazione di Alpaca Menu Bar.app"
 rm -rf "$APP_DIR"
 mkdir -p "$APP_DIR/Contents/MacOS"
@@ -292,7 +292,7 @@ EOF
 launchctl bootstrap "$GUI_DOMAIN" "$MENUBAR_PLIST"
 ok "Menu bar app installata e avviata (icona nella barra in alto)"
 
-# --- 9. Fase VPN: verifica finale ---------------------------------------------------------
+# --- 8. Fase VPN: verifica finale ---------------------------------------------------------
 step "Verifica finale (richiede la VPN Check Point attiva)"
 if [ -t 0 ]; then
     printf '%s' "    Collega la VPN Check Point e premi INVIO per avviare il test (Ctrl-C per saltarlo)... "
