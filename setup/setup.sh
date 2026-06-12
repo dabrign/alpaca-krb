@@ -10,7 +10,7 @@
 #   5. configurazione del proxy automatico di sistema (PAC)
 #   6. LaunchAgent per avviare alpaca al login (KeepAlive)
 #   7. build + installazione della menu bar app (Alpaca Menu Bar.app)
-#   8. fase finale sotto VPN: verifica ticket Kerberos e test curl via proxy
+#   8. fase finale sotto VPN: kinit interattivo (se manca il ticket) e test curl via proxy
 #
 # Idempotente: puo' essere rieseguito senza effetti collaterali.
 #
@@ -19,6 +19,7 @@ set -euo pipefail
 
 # --- Configurazione aziendale -------------------------------------------------
 KRB_SPN="HTTP/proxyu.ha.servizi.gr-u.it"
+KRB_REALM="DIREZIONE.GR-U.IT"
 PAC_URL="http://wpadu.ha.servizi.gr-u.it/wpadu.dat"
 PROXY_PORT=3128
 NO_PROXY_DOMAINS=".servizi.gr-u.it,.gr-u.it"
@@ -292,17 +293,38 @@ printf '\n'
 
 if [ "$PAC_REACHABLE" = false ]; then
     warn "PAC non raggiungibile ($PAC_URL): VPN non attiva?"
-    warn "Setup completato comunque. Quando sei sotto VPN, testa con:"
+    warn "Setup completato comunque. Quando sei sotto VPN, ottieni il ticket e testa con:"
+    warn "    kinit LEIXXXXX@$KRB_REALM"
     warn "    curl -v -x http://127.0.0.1:$PROXY_PORT https://google.com"
     exit 0
 fi
 ok "PAC raggiungibile"
 
 if klist -s 2>/dev/null; then
-    ok "Ticket Kerberos valido: $(klist 2>/dev/null | awk '/Principal:/ { print $2; exit }')"
+    ok "Ticket Kerberos già valido: $(klist 2>/dev/null | awk '/Principal:/ { print $2; exit }')"
+elif [ -t 0 ]; then
+    KINIT_DONE=false
+    for _ in 1 2 3; do
+        read -r -p "    Inserisci la tua LEI (es. lei12345): " LEI_INPUT
+        LEI="$(printf '%s' "$LEI_INPUT" | tr -d '[:space:]' | tr '[:lower:]' '[:upper:]')"
+        if ! [[ "$LEI" =~ ^LEI[0-9]+$ ]]; then
+            warn "LEI non valida: \"$LEI_INPUT\" (formato atteso: lei seguita da numeri, es. lei12345)."
+            continue
+        fi
+        printf '    kinit %s (ti verrà chiesta la password di dominio)\n' "$LEI@$KRB_REALM"
+        if kinit "$LEI@$KRB_REALM"; then
+            KINIT_DONE=true
+            break
+        fi
+        warn "kinit fallito (password errata?). Riprova."
+    done
+    if [ "$KINIT_DONE" = true ]; then
+        ok "Ticket Kerberos ottenuto per $LEI@$KRB_REALM"
+    else
+        warn "Nessun ticket Kerberos ottenuto. Puoi riprovare a mano con:  kinit LEIXXXXX@$KRB_REALM"
+    fi
 else
-    warn "Nessun ticket Kerberos valido. Con --krb-native alpaca usa il ticket del dominio;"
-    warn "se il test fallisce, esegui:  kinit  e riprova."
+    warn "Nessun ticket Kerberos valido e stdin non interattivo: esegui a mano  kinit LEIXXXXX@$KRB_REALM"
 fi
 
 printf '    Test: curl -x http://127.0.0.1:%s https://google.com\n' "$PROXY_PORT"

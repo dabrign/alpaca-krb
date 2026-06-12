@@ -5,7 +5,7 @@
 // (LaunchAgent alpaca.menubar) e ogni 5 secondi controlla:
 //   - il proxy locale (GET http://127.0.0.1:<porta>/alpaca.pac)
 //   - il ticket Kerberos (klist -s)
-//   - la raggiungibilità del PAC aziendale (fuori VPN alpaca va in bypass: giallo)
+//   - la raggiungibilità del PAC aziendale (fuori VPN alpaca va in bypass)
 //
 // La configurazione (porta, label launchd, URL PAC, percorsi log) viene letta
 // dalle chiavi Alpaca* dell'Info.plist, scritte da setup.sh; i default qui sotto
@@ -90,8 +90,9 @@ func httpReachable(_ urlString: String, timeout: TimeInterval) -> Bool {
 // MARK: - Stato
 
 enum ProxyState {
-    case running   // proxy su, ticket ok, PAC raggiungibile
-    case degraded  // proxy su, ma ticket assente/scaduto o fuori rete aziendale
+    case running   // proxy su, in rete aziendale, ticket ok
+    case bypass    // proxy su, fuori rete aziendale (connessione diretta): per l'utente è tutto ok
+    case degraded  // proxy su, in rete aziendale, ma ticket assente/scaduto
     case stopped   // porta non risponde
 }
 
@@ -104,17 +105,15 @@ struct Status {
 
     var state: ProxyState {
         if !proxyAlive { return .stopped }
-        if !ticketValid || !pacReachable { return .degraded }
+        if !pacReachable { return .bypass }
+        if !ticketValid { return .degraded }
         return .running
     }
 
     var stateLine: String {
         switch state {
-        case .running: return "Proxy: attivo (porta \(Config.proxyPort))"
-        case .degraded:
-            return pacReachable
-                ? "Proxy: attivo (porta \(Config.proxyPort))"
-                : "Proxy: attivo, fuori rete aziendale (bypass)"
+        case .running, .degraded: return "Proxy: attivo (porta \(Config.proxyPort))"
+        case .bypass: return "Proxy: attivo, fuori rete aziendale (bypass)"
         case .stopped: return "Proxy: fermo"
         }
     }
@@ -239,9 +238,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         guard let button = statusItem.button else { return }
         let symbol: String
         switch status.state {
-        case .running: symbol = "network"
+        case .running, .bypass: symbol = "checkmark.shield"
         case .degraded: symbol = "exclamationmark.triangle"
-        case .stopped: symbol = "network.slash"
+        case .stopped: symbol = "shield.slash"
         }
         let image = NSImage(systemSymbolName: symbol, accessibilityDescription: "Alpaca")
         image?.isTemplate = true
@@ -255,11 +254,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         case .stopped:
             notify(title: "Alpaca proxy fermo",
                    body: "Il proxy su 127.0.0.1:\(Config.proxyPort) non risponde.")
+        case .bypass:
+            notify(title: "Alpaca fuori rete aziendale",
+                   body: "Le richieste vanno in connessione diretta (bypass).")
         case .degraded:
             notify(title: "Alpaca in stato degradato",
-                   body: status.ticketValid
-                       ? "Fuori rete aziendale: le richieste vanno in connessione diretta."
-                       : "Ticket Kerberos assente o scaduto: esegui kinit.")
+                   body: "Ticket Kerberos assente o scaduto: esegui kinit.")
         case .running:
             notify(title: "Alpaca proxy attivo",
                    body: "Proxy funzionante su 127.0.0.1:\(Config.proxyPort).")

@@ -21,8 +21,11 @@ cd alpaca-krb
 ```
 
 Lo script fa tutto da solo (build, configurazione, avvio) e alla fine si ferma
-chiedendo di **collegare la VPN Check Point**: collegala, premi INVIO e parte il
-test finale (`curl https://google.com` attraverso il proxy).
+chiedendo di **collegare la VPN Check Point**: collegala, premi INVIO e parte la
+fase finale. Se manca un ticket Kerberos valido, lo script chiede la **LEI**
+(va bene anche minuscola, es. `lei12345`) ed esegue
+`kinit LEI12345@DIREZIONE.GR-U.IT` chiedendo la **password di dominio**; poi
+parte il test (`curl https://google.com` attraverso il proxy).
 
 Lo script è **idempotente**: si può rieseguire in qualsiasi momento, ad esempio
 per aggiornare alpaca dopo un `git pull`.
@@ -43,10 +46,12 @@ per aggiornare alpaca dopo un `git pull`.
 
 Dopo il setup compare un'icona nella barra in alto, sempre attiva:
 
-- 🌐 **network** — tutto ok: proxy attivo, ticket Kerberos valido, rete aziendale raggiungibile
-- ⚠️ **triangolo** — proxy attivo ma degradato: ticket scaduto (`kinit`) **oppure** fuori
-  VPN (alpaca manda le richieste in connessione diretta: è normale, non serve fare nulla)
-- 🚫 **network barrato** — proxy fermo
+- 🛡️✓ **scudo con spunta** — tutto ok: proxy attivo. In rete aziendale significa
+  ticket Kerberos valido; fuori VPN alpaca manda le richieste in connessione
+  diretta (bypass): è normale, non serve fare nulla (il dettaglio è nel menu)
+- ⚠️ **triangolo** — problema: in rete aziendale ma ticket Kerberos assente o
+  scaduto → `kinit`
+- 🛡️🚫 **scudo barrato** — proxy fermo
 
 Dal menu: stato proxy e ticket, **avvia/ferma/riavvia** il proxy, **test
 connettività**, **apertura log**, attivazione/disattivazione del **proxy di
@@ -63,7 +68,8 @@ curl -v -x http://127.0.0.1:3128 https://google.com
 ## Troubleshooting
 
 - **`407 Proxy Authentication Required` / test fallito con VPN attiva**: ticket
-  Kerberos assente o scaduto → `kinit` (poi `klist` per verificare).
+  Kerberos assente o scaduto → `kinit LEIXXXXX@DIREZIONE.GR-U.IT` (poi `klist`
+  per verificare).
 - **Il proxy non parte**: guarda i log (`Apri log` dal menu, oppure
   `tail -f ~/Library/Logs/alpaca.err.log`). Stato del job:
   `launchctl print gui/$(id -u)/alpaca.background`.
