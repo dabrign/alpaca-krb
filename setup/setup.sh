@@ -302,7 +302,7 @@ ok "Menu bar app installata e avviata (icona nella barra in alto)"
 # --- 8. Fase VPN: verifica finale ---------------------------------------------------------
 step "Verifica finale (richiede la VPN Check Point attiva)"
 if [ -t 0 ]; then
-    printf '%s' "    Collega la VPN Check Point e premi INVIO per avviare il test (Ctrl-C per saltarlo)... "
+    printf '%s' "    Collega la VPN Check Point e premi INVIO per avviare il test. Se sei collegato da rete aziendale premi INVIO (Ctrl-C per saltarlo)... "
     read -r _
 else
     warn "stdin non interattivo: procedo subito con il test."
