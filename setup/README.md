@@ -1,8 +1,8 @@
 # Setup proxy aziendale (alpaca) per macOS
 
 Configura un Mac aziendale a dominio per usare **alpaca** come proxy locale su
-`127.0.0.1:3128`, con autenticazione Kerberos nativa (ticket del dominio dal
-Keychain, nessuna password da inserire).
+`127.0.0.1:3128` (porta personalizzabile con `--port`), con autenticazione
+Kerberos nativa (ticket del dominio dal Keychain, nessuna password da inserire).
 
 ## Prerequisiti
 
@@ -27,8 +27,15 @@ fase finale. Se manca un ticket Kerberos valido, lo script chiede la **LEI**
 `kinit LEI12345@DIREZIONE.GR-U.IT` chiedendo la **password di dominio**; poi
 parte il test (`curl https://google.com` attraverso il proxy).
 
+Per usare una porta diversa da 3128:
+
+```sh
+./setup/setup.sh --port 8080
+```
+
 Lo script è **idempotente**: si può rieseguire in qualsiasi momento, ad esempio
-per aggiornare alpaca dopo un `git pull`.
+per aggiornare alpaca dopo un `git pull`, oppure per cambiare porta
+rilanciandolo con un altro `--port`.
 
 ### Cosa installa
 
@@ -61,6 +68,7 @@ ticket scaduto, ripristino) arriva una notifica.
 ## Verifica manuale
 
 ```sh
+# 3128 = porta di default; usa quella scelta con --port al setup
 curl -v -x http://127.0.0.1:3128 https://google.com
 # atteso: "HTTP/1.1 200 Connection Established" e poi la risposta del sito
 ```

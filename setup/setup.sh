@@ -14,14 +14,14 @@
 #
 # Idempotente: puo' essere rieseguito senza effetti collaterali.
 #
-# Uso:  ./setup/setup.sh
+# Uso:  ./setup/setup.sh [--port N]   (default: 3128)
 set -euo pipefail
 
 # --- Configurazione aziendale -------------------------------------------------
 KRB_SPN="HTTP/proxyu.ha.servizi.gr-u.it"
 KRB_REALM="DIREZIONE.GR-U.IT"
 PAC_URL="http://wpadu.ha.servizi.gr-u.it/wpadu.dat"
-PROXY_PORT=3128
+PROXY_PORT=3128 # default, sovrascrivibile con --port
 NO_PROXY_DOMAINS=".servizi.gr-u.it,.gr-u.it"
 BRANCH="feature/gssapi-native"
 MIN_GO_MINOR=24 # Go >= 1.24
@@ -55,6 +55,26 @@ step() { printf '\n%s==> %s%s\n' "$C_STEP" "$*" "$C_OFF"; }
 ok()   { printf '%s    ✔ %s%s\n' "$C_OK" "$*" "$C_OFF"; }
 warn() { printf '%s    ⚠ %s%s\n' "$C_WARN" "$*" "$C_OFF"; }
 die()  { printf '%s    ✘ %s%s\n' "$C_ERR" "$*" "$C_OFF" >&2; exit 1; }
+
+# --- Argomenti --------------------------------------------------------------------
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --port)
+            [ $# -ge 2 ] || die "--port richiede un valore (es. --port 8080)."
+            PROXY_PORT="$2"; shift 2 ;;
+        --port=*)
+            PROXY_PORT="${1#--port=}"; shift ;;
+        -h|--help)
+            printf 'Uso: %s [--port N]   (default: 3128)\n' "$0"; exit 0 ;;
+        *)
+            die "Argomento sconosciuto: $1 (uso: $0 [--port N])" ;;
+    esac
+done
+
+[[ "$PROXY_PORT" =~ ^[0-9]+$ ]] && [ "$PROXY_PORT" -ge 1 ] && [ "$PROXY_PORT" -le 65535 ] \
+    || die "Porta non valida: \"$PROXY_PORT\" (intero tra 1 e 65535)."
+[ "$PROXY_PORT" -ge 1024 ] \
+    || warn "Porta $PROXY_PORT < 1024: richiede privilegi che il LaunchAgent utente non ha."
 
 # --- 1. Prerequisiti --------------------------------------------------------------
 step "Verifica prerequisiti"
@@ -178,6 +198,8 @@ cat > "$PROXY_PLIST" <<EOF
             <string>--krb-spn</string>
             <string>$KRB_SPN</string>
             <string>--krb-debug</string>
+            <string>-p</string>
+            <string>$PROXY_PORT</string>
             <string>-C</string>
             <string>$PAC_URL</string>
         </array>
