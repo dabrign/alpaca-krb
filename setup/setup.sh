@@ -56,6 +56,17 @@ ok()   { printf '%s    ✔ %s%s\n' "$C_OK" "$*" "$C_OFF"; }
 warn() { printf '%s    ⚠ %s%s\n' "$C_WARN" "$*" "$C_OFF"; }
 die()  { printf '%s    ✘ %s%s\n' "$C_ERR" "$*" "$C_OFF" >&2; exit 1; }
 
+# Vero solo se la credenziale Kerberos DI DEFAULT è valida (non scaduta) ED è del
+# realm aziendale $KRB_REALM. Il proxy con --krb-native usa la credenziale GSS-API
+# di default (vedi authenticator_spnego_gssapi.go): un ticket Microsoft di default
+# non è sufficiente, serve LEIxxxxx@DIREZIONE.GR-U.IT.
+krb_default_ticket_valid() {
+    klist -s 2>/dev/null || return 1
+    local principal
+    principal="$(klist 2>/dev/null | awk '/Principal:/ { print $2; exit }')"
+    [ "${principal##*@}" = "$KRB_REALM" ]
+}
+
 # --- Argomenti --------------------------------------------------------------------
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -329,31 +340,37 @@ if [ "$PAC_REACHABLE" = false ]; then
 fi
 ok "PAC raggiungibile"
 
-if klist -s 2>/dev/null; then
+if krb_default_ticket_valid; then
     ok "Ticket Kerberos già valido: $(klist 2>/dev/null | awk '/Principal:/ { print $2; exit }')"
-elif [ -t 0 ]; then
-    KINIT_DONE=false
-    for _ in 1 2 3; do
-        read -r -p "    Inserisci la tua LEI (es. lei12345): " LEI_INPUT
-        LEI="$(printf '%s' "$LEI_INPUT" | tr -d '[:space:]' | tr '[:lower:]' '[:upper:]')"
-        if ! [[ "$LEI" =~ ^LEI[0-9]+$ ]]; then
-            warn "LEI non valida: \"$LEI_INPUT\" (formato atteso: lei seguita da numeri, es. lei12345)."
-            continue
-        fi
-        printf '    kinit %s (ti verrà chiesta la password di dominio)\n' "$LEI@$KRB_REALM"
-        if kinit "$LEI@$KRB_REALM"; then
-            KINIT_DONE=true
-            break
-        fi
-        warn "kinit fallito (password errata?). Riprova."
-    done
-    if [ "$KINIT_DONE" = true ]; then
-        ok "Ticket Kerberos ottenuto per $LEI@$KRB_REALM"
-    else
-        warn "Nessun ticket Kerberos ottenuto. Puoi riprovare a mano con:  kinit LEIXXXXX@$KRB_REALM"
-    fi
 else
-    warn "Nessun ticket Kerberos valido e stdin non interattivo: esegui a mano  kinit LEIXXXXX@$KRB_REALM"
+    CURRENT_PRINCIPAL="$(klist 2>/dev/null | awk '/Principal:/ { print $2; exit }' || true)"
+    if [ -n "$CURRENT_PRINCIPAL" ]; then
+        warn "Ticket di default ($CURRENT_PRINCIPAL) non del realm $KRB_REALM: serve un ticket LEIXXXXX@$KRB_REALM."
+    fi
+    if [ -t 0 ]; then
+        KINIT_DONE=false
+        for _ in 1 2 3; do
+            read -r -p "    Inserisci la tua LEI (es. lei12345): " LEI_INPUT
+            LEI="$(printf '%s' "$LEI_INPUT" | tr -d '[:space:]' | tr '[:lower:]' '[:upper:]')"
+            if ! [[ "$LEI" =~ ^LEI[0-9]+$ ]]; then
+                warn "LEI non valida: \"$LEI_INPUT\" (formato atteso: lei seguita da numeri, es. lei12345)."
+                continue
+            fi
+            printf '    kinit %s (ti verrà chiesta la password di dominio)\n' "$LEI@$KRB_REALM"
+            if kinit "$LEI@$KRB_REALM"; then
+                KINIT_DONE=true
+                break
+            fi
+            warn "kinit fallito (password errata?). Riprova."
+        done
+        if [ "$KINIT_DONE" = true ]; then
+            ok "Ticket Kerberos ottenuto per $LEI@$KRB_REALM"
+        else
+            warn "Nessun ticket Kerberos ottenuto. Puoi riprovare a mano con:  kinit LEIXXXXX@$KRB_REALM"
+        fi
+    else
+        warn "Nessun ticket Kerberos valido per $KRB_REALM e stdin non interattivo: esegui a mano  kinit LEIXXXXX@$KRB_REALM"
+    fi
 fi
 
 printf '    Test: curl -x http://127.0.0.1:%s https://google.com\n' "$PROXY_PORT"
