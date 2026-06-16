@@ -1,283 +1,99 @@
-# Alpaca
+# Setup proxy aziendale (alpaca) per macOS
 
-![Alpaca Logo](assets/alpaca-small.png)
+Configura un Mac aziendale a dominio per usare **alpaca** come proxy locale su
+`127.0.0.1:3128` (porta personalizzabile con `--port`), con autenticazione
+Kerberos nativa (ticket del dominio dal Keychain, nessuna password da inserire).
 
-![Latest Tag][2] ![GitHub Workflow Status][3] ![GitHub Releases][4]
+## Prerequisiti
 
-Alpaca is a local HTTP proxy for command-line tools. It supports proxy
-auto-configuration (PAC) files and NTLM authentication.
-![alt text](assets/alpaca-banner.png)
+- Mac a dominio, utente amministratore
+- **Xcode Command Line Tools**: `xcode-select --install`
+- **Go ≥ 1.24**: `brew install go` oppure da <https://go.dev/dl/>
 
-## Install using Homebrew
+## Installazione
 
-If you're using macOS and use [Homebrew](https://brew.sh/), you can install
-using:
-
-```sh
-$ brew tap samuong/alpaca
-$ brew install samuong/alpaca/alpaca
-```
-
-Launch Alpaca by running `alpaca`, or by using `brew services start alpaca`.
-
-## Install using Go
-
-If you've got the [Go](https://golang.org/cmd/go/) tool installed, you can
-install using:
+Da **wifi esterno, senza VPN e senza proxy configurati**:
 
 ```sh
-$ go install github.com/samuong/alpaca/v2@latest
+git clone https://github.com/dabrign/alpaca-krb.git
+cd alpaca-krb
+./setup/setup.sh
 ```
 
-## Download Binary
+Lo script fa tutto da solo (build, configurazione, avvio) e alla fine si ferma
+chiedendo di **collegare la VPN Check Point**: collegala, premi INVIO e parte la
+fase finale. Se manca un ticket Kerberos valido del dominio aziendale — perché
+assente, scaduto o perché quello di default è di un altro realm (es. un ticket
+Microsoft) — lo script chiede la **LEI** (va bene anche minuscola, es.
+`lei12345`) ed esegue `kinit LEI12345@DIREZIONE.GR-U.IT` chiedendo la
+**password di dominio**; poi parte il test (`curl https://google.com`
+attraverso il proxy).
 
-Alpaca can be downloaded from the [GitHub releases page][1].
-
-## Install from distribution packages
-
-[![Packaging status](https://repology.org/badge/vertical-allrepos/alpaca-proxy.svg)](https://repology.org/project/alpaca-proxy/versions)
-
-## Usage
-
-Start Alpaca by running the `alpaca` binary.
-
-If the proxy server requires valid authentication credentials, you can provide them by means of:
-
-- the shell prompt, if `-d` is passed,
-- the shell environment, if `NTLM_CREDENTIALS` is set,
-- the system keyring (macOS, Windows and Linux/GNOME supported), if none of the above applies.
-
-Otherwise, the authentication with proxy will be simply ignored.
-
-### Shell Prompt
-
-You can also supply your domain and username (via command-line flags) and a
-password (via a prompt):
+Per usare una porta diversa da 3128:
 
 ```sh
-$ alpaca -d MYDOMAIN -u me
-Password (for MYDOMAIN\me):
+./setup/setup.sh --port 8080
 ```
 
-### Non-interactive launch
+Lo script è **idempotente**: si può rieseguire in qualsiasi momento, ad esempio
+per aggiornare alpaca dopo un `git pull`, oppure per cambiare porta
+rilanciandolo con un altro `--port`.
 
-If you want to use Alpaca without any interactive password prompt, you can store
-your NTLM credentials (domain, username and MD4-hashed password) in an
-environment variable called `$NTLM_CREDENTIALS`. You can use the `-H` flag to
-generate this value:
+### Cosa installa
+
+| Cosa | Dove |
+|---|---|
+| Binario alpaca | `~/Library/Application Support/Alpaca/alpaca` |
+| Menu bar app | `~/Applications/Alpaca Menu Bar.app` |
+| Avvio automatico proxy | `~/Library/LaunchAgents/alpaca.background.plist` (KeepAlive: riparte se crasha) |
+| Avvio automatico menu bar | `~/Library/LaunchAgents/alpaca.menubar.plist` |
+| Variabili proxy shell | blocco marcato in `~/.zshrc` (`HTTP_PROXY`, `HTTPS_PROXY`, `no_proxy`, …) |
+| Proxy automatico di sistema | PAC `http://wpadu.ha.servizi.gr-u.it/wpadu.dat` via `networksetup` |
+| Log | `~/Library/Logs/alpaca.out.log` e `alpaca.err.log` |
+
+## Menu bar app
+
+Dopo il setup compare un'icona nella barra in alto, sempre attiva:
+
+- 🛡️✓ **scudo con spunta** — tutto ok: proxy attivo. In rete aziendale significa
+  ticket Kerberos valido; fuori VPN alpaca manda le richieste in connessione
+  diretta (bypass): è normale, non serve fare nulla (il dettaglio è nel menu)
+- ⚠️ **triangolo** — problema: in rete aziendale ma ticket Kerberos assente o
+  scaduto → `kinit`
+- 🛡️🚫 **scudo barrato** — proxy fermo
+
+Dal menu: stato proxy e ticket, **avvia/ferma/riavvia** il proxy, **test
+connettività**, **apertura** e **pulizia dei log**, attivazione/disattivazione
+del **proxy di sistema (PAC)** e dell'**avvio al login**. Ai cambi di stato
+(proxy caduto, ticket scaduto, ripristino) arriva una notifica.
+
+## Verifica manuale
 
 ```sh
-$ ./alpaca -d MYDOMAIN -u me -H
-# Add this to your ~/.profile (or equivalent) and restart your shell
-NTLM_CREDENTIALS="me@MYDOMAIN:823893adfad2cda6e1a414f3ebdf58f7"; export NTLM_CREDENTIALS
+# 3128 = porta di default; usa quella scelta con --port al setup
+curl -v -x http://127.0.0.1:3128 https://google.com
+# atteso: "HTTP/1.1 200 Connection Established" e poi la risposta del sito
 ```
 
-Note that this hash is *not* cryptographically secure; it's just meant to stop
-people from being able to read your password with a quick glance.
+## Troubleshooting
 
-Once you've set this environment variable, you can start Alpaca by running
-`./alpaca`.
+- **`407 Proxy Authentication Required` / test fallito con VPN attiva**: ticket
+  Kerberos assente o scaduto → `kinit LEIXXXXX@DIREZIONE.GR-U.IT` (poi `klist`
+  per verificare).
+- **Il proxy non parte**: guarda i log (`Apri log` dal menu, oppure
+  `tail -f ~/Library/Logs/alpaca.err.log`). Stato del job:
+  `launchctl print gui/$(id -u)/alpaca.background`.
+- **Le variabili proxy non ci sono nel terminale**: apri una nuova finestra o
+  esegui `source ~/.zshrc`.
+- **`networksetup` fallisce nel setup**: serve un utente amministratore; in
+  alternativa configura a mano System Settings → Network → *connessione in
+  uso* → Details… → Proxies → Automatic proxy configuration con l'URL del PAC.
 
-### Keyring
-
-On macOS, if you use [NoMAD](https://nomad.menu/products/#nomad) and have configured it
-to [use the keychain](https://nomad.menu/help/keychain-usage/), Alpaca will use
-these credentials to authenticate to any NTLM challenge from your proxies.
-
-#### Custom Keychain Items (macOS)
-
-You can also use credentials from other keychain items using the `-k` flag:
-
-```bash
-# Use a custom keychain item by label
-$ alpaca -k "MyProxyApp"
-
-# Use Kerberos SSO extension credentials
-$ alpaca -k "kerberos:CORP.EXAMPLE.COM"
-```
-
-The `-k` flag supports:
-- **Label lookup**: Specify the keychain item label (e.g., `-k "MyApp"`)
-- **Kerberos SSO extension**: Use format `kerberos:REALM` to read credentials from the [Kerberos Single Sign-on extension](https://support.apple.com/en-gb/guide/deployment/depe6a1cda64/web)
-
-The keychain account must be in `user@domain` format for Alpaca to extract the username and domain.
-
-On Windows and Linux/GNOME you will need some extra work to persist the username (`NTLM_USERNAME`) and the domain (`NTLM_DOMAIN`) 
-in the shell environoment, while the password in the system keyring. Alpaca will read the password from the system keyring 
-(in the `login` collection) using the attributes `service=alpaca` and `username=$NTLM_USERNAME`.
-
-To store the password in the GNOME keyring, do the following:
-```bash
-$ export NTLM_USERNAME=<your-username-here>
-$ export NTLM_DOMAIN=<your-domain-here>
-$ sudo apt install libsecret-tools
-$ secret-tool store -c login -l "NTLM credentials" "service" "alpaca" "username" $NTLM_USERNAME
-Password:
-# Type your password, then run
-$ alpaca
-```
-
-On macOS and Linux/GNOME systems, Alpaca uses the PAC URL from your system settings.
-If you'd like to override this, or if Alpaca fails to detect your settings, you
-can set this manually using the `-C` flag.
-
----
-
-### Kerberos/SPNEGO Authentication
-
-Alpaca supports Kerberos (SPNEGO/Negotiate) authentication with upstream proxies.
-This is commonly used in corporate environments where the proxy requires Kerberos authentication.
-
-#### Quick Start: Native GSS-API (macOS - Recommended)
-
-On macOS, use the native GSS-API to access Kerberos tickets directly from the Keychain:
-
-```bash
-# Get a Kerberos ticket (stored in Keychain automatically)
-$ kinit your.username@CORP.EXAMPLE.COM
-
-# Start Alpaca with native GSS-API
-$ alpaca --auth-type=kerberos --krb-native --krb-spn=HTTP/proxy.corp.com
-```
-
-This is the simplest approach on macOS - no password storage or file-based cache setup required.
-
-#### Alternative: Password Authentication
-
-For cross-platform use or when native GSS-API isn't available:
-
-```bash
-# Using password directly (will be visible in process list)
-$ alpaca --auth-type=kerberos \
-         --krb-user=username@CORP.EXAMPLE.COM \
-         --krb-password=yourpassword \
-         --krb-spn=HTTP/proxy.corp.com
-
-# Using environment variable (more secure)
-$ export KRB_PASSWORD=yourpassword
-$ alpaca --auth-type=kerberos \
-         --krb-user=username@CORP.EXAMPLE.COM \
-         --krb-spn=HTTP/proxy.corp.com
-```
-
-#### Kerberos CLI Options
-
-| Flag | Description |
-|------|-------------|
-| `--auth-type` | Authentication type: `ntlm` (default) or `kerberos` |
-| `--krb-native` | Use native GSS-API (macOS Keychain support, requires CGO) |
-| `--krb-user` | Kerberos username (e.g., `user@REALM` or `DOMAIN\user`) |
-| `--krb-password` | Kerberos password (or use `KRB_PASSWORD` env var) |
-| `--krb-spn` | Service Principal Name for the proxy (e.g., `HTTP/proxy.corp.com`) |
-| `--krb-realm` | Kerberos realm (optional if included in `--krb-user`) |
-| `--krb5-conf` | Path to krb5.conf (default: `/etc/krb5.conf` or `$KRB5_CONFIG`) |
-| `--krb-keytab` | Path to keytab file (for service accounts) |
-| `--krb-ccache` | Path to credential cache file (for `kinit` workflow) |
-| `--krb-debug` | Enable verbose Kerberos debug logging |
-
-#### Credential Priority
-
-Alpaca checks for Kerberos credentials in this order:
-1. **Native GSS-API** (`--krb-native`) - uses OS credential store (macOS Keychain)
-2. **Password** (`--krb-user` + `--krb-password` or `KRB_PASSWORD` env var)
-3. **Keytab** (`--krb-keytab`)
-4. **Credential Cache** (`--krb-ccache` or `KRB5CCNAME` env var or default location)
-
-#### Alternative: Using Existing Kerberos Tickets (kinit)
-
-If you prefer to use existing Kerberos tickets from `kinit`:
-
-**On Linux:**
-```bash
-# Get a Kerberos ticket
-$ kinit your.username@CORP.EXAMPLE.COM
-
-# Verify ticket exists
-$ klist
-
-# Start Alpaca
-$ alpaca --auth-type=kerberos --krb-spn=HTTP/proxy.corp.com
-```
-
-**On macOS:**
-
-macOS stores Kerberos tickets in the Keychain by default, which is not supported
-by the pure Go Kerberos library. You must use a file-based credential cache:
-
-```bash
-# Step 1: Set up file-based credential cache
-$ export KRB5CCNAME=FILE:/tmp/krb5cc_$(id -u)
-
-# Step 2: Get tickets (they'll be stored in the file)
-$ kinit your.username@CORP.EXAMPLE.COM
-
-# Step 3: Verify tickets are in the file
-$ klist
-$ ls -la /tmp/krb5cc_*
-
-# Step 4: Start Alpaca
-$ alpaca --auth-type=kerberos --krb-spn=HTTP/proxy.corp.com
-```
-
-**Note:** On macOS, the `export KRB5CCNAME` and `kinit` commands must be run in
-the **same terminal session**. Add the export to your `~/.zshrc` or `~/.bashrc`
-to make it permanent.
-
-#### Using a Keytab File
-
-For automated/service scenarios, you can use a keytab file:
-
-```bash
-$ alpaca --auth-type=kerberos \
-         --krb-keytab=/path/to/user.keytab \
-         --krb-spn=HTTP/proxy.corp.com
-```
-
-#### Finding the Correct SPN
-
-The Service Principal Name (SPN) is typically `HTTP/<proxy-hostname>`. To find it:
-
-1. **Ask your IT department** - they should know the proxy's SPN
-2. **Use the proxy hostname** - e.g., if proxy is `proxy.corp.com:8080`, try `HTTP/proxy.corp.com`
-3. **Check with kvno** (if available): `kvno HTTP/proxy.corp.com`
-
-#### Troubleshooting Kerberos
-
-| Issue | Solution |
-|-------|----------|
-| `credential cache file not found` | On macOS, use `export KRB5CCNAME=FILE:/tmp/krb5cc_$(id -u)` before `kinit` |
-| `credential cache type "KCM" is not supported` | macOS uses Keychain by default; use password auth or file-based cache |
-| `Kerberos login failed` | Check username/password, verify realm is correct |
-| `407 Proxy Authentication Required` | Verify SPN is correct, check if tickets are valid with `klist` |
-| `failed to load krb5.conf` | Ensure `/etc/krb5.conf` exists or specify with `--krb5-conf` |
-
-**Enable debug logging** to see detailed Kerberos operations:
-```bash
-$ alpaca --auth-type=kerberos --krb-debug --krb-user=user@REALM --krb-spn=HTTP/proxy
-```
-
----
-
-### Proxy
-
-You also need to configure your tools to send requests via Alpaca. Usually this
-will require setting the `http_proxy` and `https_proxy` environment variables:
+## Disinstallazione
 
 ```sh
-$ export http_proxy=http://localhost:3128
-$ export https_proxy=http://localhost:3128
-$ curl -s https://raw.githubusercontent.com/samuong/alpaca/master/README.md
-# Alpaca
-...
+./setup/uninstall.sh
 ```
 
-When moving from, say, a corporate network to a public WiFi network (or
-vice-versa), the proxies listed in the PAC script might become unreachable.
-When this happens, Alpaca will temporarily bypass the parent proxy and send
-requests directly, so there's no need to manually unset/re-set `http_proxy` and
-`https_proxy` as you move between networks.
-
-[1]: https://github.com/samuong/alpaca/releases
-[2]: https://img.shields.io/github/v/tag/samuong/alpaca.svg?logo=github&label=latest
-[3]: https://img.shields.io/github/actions/workflow/status/samuong/alpaca/ci.yml?branch=master
-[4]: https://img.shields.io/github/downloads/samuong/alpaca/latest/total
+Ferma e rimuove LaunchAgent, binario, menu bar app, log, blocco in `~/.zshrc` e
+disattiva il PAC di sistema. Il clone della repo non viene toccato.
