@@ -300,6 +300,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
         menu.addItem(actionItem("Test connettività…", #selector(testConnectivity)))
         menu.addItem(actionItem("Apri log", #selector(openLogs)))
+        menu.addItem(actionItem("Pulisci log…", #selector(clearLogs)))
         menu.addItem(.separator())
 
         let systemProxy = actionItem("Proxy di sistema (PAC)", #selector(toggleSystemProxy),
@@ -379,6 +380,45 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
     }
 
+    @objc private func clearLogs() {
+        let paths = [Config.outLog, Config.errLog]
+        let existing = paths.filter { FileManager.default.fileExists(atPath: $0) }
+        guard !existing.isEmpty else {
+            showAlert(title: "Nessun log da pulire",
+                      body: "Non è stato trovato alcun file di log.")
+            return
+        }
+        guard confirm(title: "Pulire i log?",
+                      body: "I file di log verranno svuotati:\n\(existing.joined(separator: "\n"))\n\nL'operazione non è reversibile.",
+                      confirmButton: "Pulisci")
+        else { return }
+
+        var failed: [String] = []
+        for path in existing {
+            // Tronca il file in-place mantenendo lo stesso inode: il descrittore
+            // già aperto da alpaca continua a scrivere sullo stesso file, senza
+            // riavviare il proxy. NB: createFile/rimozione creerebbero un nuovo
+            // inode lasciando il proxy a scrivere su un file orfano.
+            guard let handle = FileHandle(forWritingAtPath: path) else {
+                failed.append(path)
+                continue
+            }
+            do {
+                try handle.truncate(atOffset: 0)
+                try handle.close()
+            } catch {
+                failed.append(path)
+            }
+        }
+        if failed.isEmpty {
+            showAlert(title: "Log puliti ✅",
+                      body: "I file di log sono stati svuotati.")
+        } else {
+            showAlert(title: "Pulizia parziale ❌",
+                      body: "Impossibile svuotare:\n\(failed.joined(separator: "\n"))")
+        }
+    }
+
     @objc private func toggleSystemProxy() {
         let enable = status.systemProxyEnabled != true
         runInBackgroundThenPoll { [weak self] in
@@ -421,5 +461,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         alert.messageText = title
         alert.informativeText = body
         alert.runModal()
+    }
+
+    /// Mostra una conferma con due pulsanti; true se l'utente conferma.
+    private func confirm(title: String, body: String, confirmButton: String) -> Bool {
+        NSApp.activate(ignoringOtherApps: true)
+        let alert = NSAlert()
+        alert.messageText = title
+        alert.informativeText = body
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: confirmButton)
+        alert.addButton(withTitle: "Annulla")
+        return alert.runModal() == .alertFirstButtonReturn
     }
 }
